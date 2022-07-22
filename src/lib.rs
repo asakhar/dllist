@@ -27,19 +27,30 @@ pub mod list_deque {
   }
 
   #[macro_export]
+  macro_rules! deque_insertion_helper {
+    ($deq:ident, $x:expr) => {
+      $deq.push_back($x);
+    };
+    ($deq:ident, $x:expr, $($y:expr),*) => {
+      {
+        $deq.push_back($x);
+        deque_insertion_helper!($deq, $($y),*);
+      }
+    }
+  }
+
+  #[macro_export]
   macro_rules! deque {
       ($($x:expr),*) => {
           {
               let mut new_list = ListDeque::new();
-              for item in [$($x),*] {
-                  new_list.push_back(item);
-              }
+              deque_insertion_helper!(new_list, $($x),*);
               new_list
           }
       };
       ($elem:expr; $n:expr) => {
           {
-              let mut new_list = list_deque![];
+              let mut new_list = deque![];
               let size: usize = $n;
               let elem = $elem;
               for _ in 0..size {
@@ -123,6 +134,35 @@ pub mod list_deque {
     }
   }
 
+  /// ```
+  /// use dllist::*;
+  /// trait AnyWrite: std::io::Write {
+  ///   fn as_any(&self) -> &dyn std::any::Any;
+  /// }
+  ///
+  /// impl AnyWrite for Vec<u8> {
+  ///   fn as_any(&self) -> &dyn std::any::Any {
+  ///     self
+  ///   }
+  /// }
+  ///
+  /// impl AnyWrite for std::fs::File {
+  ///   fn as_any(&self) -> &dyn std::any::Any {
+  ///     self
+  ///   }
+  /// }
+  /// let buf1 = vec![0,1];
+  /// let buf2 = std::fs::File::create("/dev/null").unwrap();
+  /// let mut list: ListDeque<dyn AnyWrite> = deque![buf1, buf2];
+  ///
+  /// let vector: &Vec<u8> = list.peek_front()
+  ///                            .unwrap()
+  ///                            .as_any()
+  ///                            .downcast_ref()
+  ///                            .unwrap();
+  /// assert_eq!(vector[0], 0);
+  /// assert_eq!(vector[1], 1);
+  /// ```
   /// ```
   /// use dllist::*;
   /// let mut list = deque_sized![1,2,3];
@@ -574,18 +614,74 @@ pub mod prelude {
 pub use list_deque::ListDeque;
 #[cfg(test)]
 mod tests {
-  use std::{any::Any, io::Write};
+  use std::{
+    any::Any,
+    io::{Read, Seek, SeekFrom, Write},
+  };
 
   use crate::{deque_sized, list_deque::ListDeque};
 
   trait AnyWrite: Write {
     fn as_any(&self) -> &dyn Any;
+    fn as_mut_any(&mut self) -> &mut dyn Any;
   }
 
   impl AnyWrite for Vec<u8> {
     fn as_any(&self) -> &dyn Any {
       self
     }
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+      self
+    }
+  }
+
+  impl AnyWrite for std::fs::File {
+    fn as_any(&self) -> &dyn Any {
+      self
+    }
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+      self
+    }
+  }
+
+  #[test]
+  fn macro_unsized() {
+    let buf1: Vec<u8> = Vec::new();
+    let buf2 = std::fs::File::options()
+      .create(true)
+      .read(true)
+      .write(true)
+      .open("a")
+      .unwrap();
+    let mut list: ListDeque<dyn AnyWrite> = deque![buf1, buf2];
+    assert_eq!(list.size(), 2);
+    list.peek_back_mut().unwrap().write_all(b"b").unwrap();
+    assert_eq!(list.size(), 2);
+    list.peek_front_mut().unwrap().write_all(b"a").unwrap();
+    assert_eq!(list.size(), 2);
+
+    for (item, c) in list.iter_mut().zip(b"ab") {
+      if let Some(vector) = item.as_any().downcast_ref::<Vec<u8>>() {
+        assert_eq!(vector[0], *c);
+      } else if let Some(mut file) = item.as_mut_any().downcast_ref::<std::fs::File>() {
+        let mut buf = [0u8; 1];
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.read_exact(&mut buf).unwrap();
+        assert_eq!(buf[0], *c);
+        std::fs::remove_file("a").unwrap();
+      } else {
+        panic!("ListDeque contains only vector and file");
+      }
+    }
+    assert_eq!(list.size(), 2);
+    assert_eq!(list.drop_front(), Some(()));
+    assert_eq!(list.size(), 1);
+    assert_eq!(list.drop_back(), Some(()));
+    assert_eq!(list.size(), 0);
+    assert_eq!(list.drop_front(), None);
+    assert_eq!(list.size(), 0);
+    assert_eq!(list.drop_back(), None);
+    assert_eq!(list.size(), 0);
   }
 
   #[test]
