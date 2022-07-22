@@ -566,6 +566,7 @@ pub mod list_deque {
   }
 }
 
+#[macro_use]
 pub mod prelude {
   pub use crate::list_deque::*;
 }
