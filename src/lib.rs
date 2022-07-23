@@ -67,16 +67,45 @@ pub mod list_deque {
     mem::ManuallyDrop,
   };
 
+  #[repr(transparent)]
+  #[derive(Clone, Copy, PartialEq, Eq)]
+  struct NodePtr(u128);
+
+  impl NodePtr {
+    fn null() -> Self {
+      Self(0)
+    }
+    fn is_null(&self) -> bool {
+      self.0 == 0
+    }
+    fn is_not_null(&self) -> bool {
+      self.0 != 0
+    }
+  }
+
+  impl From<u128> for NodePtr {
+    fn from(ptr: u128) -> Self {
+      Self(ptr)
+    }
+  }
+
+  impl From<u64> for NodePtr {
+    fn from(ptr: u64) -> Self {
+      Self(ptr as u128)
+    }
+  }
+
   struct Node<U: ?Sized> {
-    next: u128,
-    prev: u128,
+    next: NodePtr,
+    prev: NodePtr,
     value: U,
   }
 
   impl<U: ?Sized> Node<U> {
     /// ## Safety requirements:
-    /// ptr must be aquired from Node::<U>::new<_>
-    unsafe fn from(ptr: u128) -> ManuallyDrop<Box<Node<U>>> {
+    /// - ptr must be aquired from Node::< U>::new<_>
+    /// - ptr should point to memory that has not been currently dereferenced with other assosiated functions on Node (no exclusive or shared refs)
+    unsafe fn from(ptr: NodePtr) -> ManuallyDrop<Box<Node<U>>> {
       // SAFETY: *mut Node<U> is either thin or wide ptr (64 or 128 bits respectivly).
       // So *mut Node<U> is always thinner or same as u128
       let node_ptr: *mut Node<U> = std::mem::transmute_copy(&ptr);
@@ -84,18 +113,20 @@ pub mod list_deque {
     }
 
     /// ## Safety requirements:
-    /// ptr must be aquired from Node::<U>::new<_>
-    unsafe fn mut_from<'a>(ptr: u128) -> &'a mut Node<U> {
-      Box::leak(ManuallyDrop::into_inner(Self::from(ptr)))
+    /// - ptr must be aquired from Node::< U>::new<_>
+    /// - ptr should point to memory that has not been currently dereferenced with other assosiated functions on Node (no exclusive or shared refs)
+    unsafe fn mut_from<'a>(ptr: NodePtr) -> &'a mut Node<U> {
+      std::mem::transmute_copy(&ptr)
     }
 
     /// ## Safety requirements:
-    /// ptr must be aquired from Node::<U>::new<_>
-    unsafe fn ref_from<'a>(ptr: u128) -> &'a Node<U> {
-      Box::leak(ManuallyDrop::into_inner(Self::from(ptr)))
+    /// - ptr must be aquired from Node::< U>::new<_>
+    /// - ptr should point to memory that has not been currently dereferenced with ownership taking or exclusive borrowing assosiated functions on Node
+    unsafe fn ref_from<'a>(ptr: NodePtr) -> &'a Node<U> {
+      std::mem::transmute_copy(&ptr)
     }
 
-    fn new<T>(value: T, next: u128, prev: u128) -> u128
+    fn new<T>(value: T, next: NodePtr, prev: NodePtr) -> NodePtr
     where
       T: Unsize<U>,
     {
@@ -108,7 +139,7 @@ pub mod list_deque {
         8 => {
           // SAFETY: *mut Node<U> is thin ptr so it would fit in u64
           let tmp: u64 = unsafe { std::mem::transmute_copy(&trait_ptr) };
-          tmp as u128
+          tmp.into()
         }
         // SAFETY: *mut Node<U> is wide ptr so it would fit in u128
         // in both cases ptr is always a valid uint
@@ -118,7 +149,7 @@ pub mod list_deque {
     }
   }
   impl<T> Node<T> {
-    fn new_sized(value: T, next: u128, prev: u128) -> u128 {
+    fn new_sized(value: T, next: NodePtr, prev: NodePtr) -> NodePtr {
       let node = Node::<T> { next, prev, value };
       let node_box = Box::new(node);
       let node_ptr = Box::into_raw(node_box);
@@ -127,7 +158,7 @@ pub mod list_deque {
         8 => {
           // SAFETY: *mut Node<U> is thin ptr so it would fit in u64
           let tmp: u64 = unsafe { std::mem::transmute_copy(&node_ptr) };
-          tmp as u128
+          tmp.into()
         }
         _ => unreachable!(),
       }
@@ -187,8 +218,8 @@ pub mod list_deque {
   /// *item = 4;
   /// ```
   pub struct ListDeque<U: ?Sized> {
-    begin: u128,
-    end: u128,
+    begin: NodePtr,
+    end: NodePtr,
     length: usize,
     _phantom: PhantomData<U>,
   }
@@ -196,8 +227,8 @@ pub mod list_deque {
   impl<U: ?Sized> ListDeque<U> {
     pub fn new() -> Self {
       Self {
-        begin: 0,
-        end: 0,
+        begin: NodePtr::null(),
+        end: NodePtr::null(),
         length: 0,
         _phantom: Default::default(),
       }
@@ -211,12 +242,12 @@ pub mod list_deque {
       // SAFETY: self.end is acquired from Node::<U>::new<T>()
       let end = ManuallyDrop::into_inner(unsafe { Node::<U>::from(self.end) });
       self.end = end.prev;
-      if self.end == 0 {
+      if self.end.is_null() {
         return Some(());
       }
       // SAFETY: self.end is acquired from Node::<U>::new<T>()
       let mut end = unsafe { Node::<U>::from(self.end) };
-      end.next = 0;
+      end.next = NodePtr::null();
       Some(())
     }
 
@@ -228,12 +259,12 @@ pub mod list_deque {
       // SAFETY: self.begin is acquired from Node::<U>::new<T>()
       let begin = ManuallyDrop::into_inner(unsafe { Node::<U>::from(self.begin) });
       self.begin = begin.next;
-      if self.begin == 0 {
+      if self.begin.is_null() {
         return Some(());
       }
       // SAFETY: self.begin is acquired from Node::<U>::new<T>()
       let mut begin = unsafe { Node::<U>::from(self.begin) };
-      begin.prev = 0;
+      begin.prev = NodePtr::null();
       Some(())
     }
 
@@ -245,7 +276,7 @@ pub mod list_deque {
       if self.length == 0 {
         return None;
       }
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.end is acquired from Node::<U>::new<T>()
       let end = unsafe { Node::<U>::ref_from(self.end) };
       Some(&end.value)
@@ -255,7 +286,7 @@ pub mod list_deque {
       if self.length == 0 {
         return None;
       }
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.end is acquired from Node::<U>::new<T>()
       let end = unsafe { Node::<U>::mut_from(self.end) };
       Some(&mut end.value)
@@ -265,7 +296,7 @@ pub mod list_deque {
       if self.length == 0 {
         return None;
       }
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.begin is acquired from Node::<U>::new<T>()
       let begin = unsafe { Node::<U>::ref_from(self.begin) };
       Some(&begin.value)
@@ -275,7 +306,7 @@ pub mod list_deque {
       if self.length == 0 {
         return None;
       }
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.begin is acquired from Node::<U>::new<T>()
       let begin = unsafe { Node::<U>::mut_from(self.begin) };
       Some(&mut begin.value)
@@ -283,7 +314,7 @@ pub mod list_deque {
 
     pub fn push_back<T: Unsize<U>>(&mut self, value: T) {
       if let Some(value) = self.try_push_first(value) {
-        let node = Node::<U>::new(value, 0, self.end);
+        let node = Node::<U>::new(value, NodePtr::null(), self.end);
         // SAFETY: self.end is acquired from Node::<U>::new<T>()
         let mut end = unsafe { Node::<U>::from(self.end) };
         end.next = node;
@@ -293,7 +324,7 @@ pub mod list_deque {
 
     pub fn push_front<T: Unsize<U>>(&mut self, value: T) {
       if let Some(value) = self.try_push_first(value) {
-        let node = Node::<U>::new(value, self.begin, 0);
+        let node = Node::<U>::new(value, self.begin, NodePtr::null());
         // SAFETY: self.begin is acquired from Node::<U>::new<T>()
         let mut begin = unsafe { Node::<U>::from(self.begin) };
         begin.prev = node;
@@ -322,11 +353,11 @@ pub mod list_deque {
     fn try_push_first<T: Unsize<U>>(&mut self, value: T) -> Option<T> {
       self.length += 1;
       if self.length != 1 {
-        debug_assert!(self.begin != 0 && self.end != 0);
+        debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
         return Some(value);
       }
-      debug_assert!(self.begin == 0 && self.end == 0);
-      let node = Node::<U>::new(value, 0, 0);
+      debug_assert!(self.begin.is_null() && self.end.is_null());
+      let node = Node::<U>::new(value, NodePtr::null(), NodePtr::null());
       self.begin = node;
       self.end = node;
       return None;
@@ -334,12 +365,12 @@ pub mod list_deque {
 
     fn try_drop_last(&mut self) -> Option<Option<()>> {
       self.length = self.length.checked_sub(1)?;
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       if self.length == 0 {
         // SAFETY: self.begin is acquired from Node::<U>::new<T>()
         let _ = ManuallyDrop::into_inner(unsafe { Node::<U>::from(self.begin) });
-        self.begin = 0;
-        self.end = 0;
+        self.begin = NodePtr::null();
+        self.end = NodePtr::null();
         return Some(Some(()));
       }
       Some(None)
@@ -349,7 +380,7 @@ pub mod list_deque {
   impl<T> ListDeque<T> {
     pub fn push_back_sized(&mut self, value: T) {
       if let Some(value) = self.try_push_first_sized(value) {
-        let node = Node::<T>::new_sized(value, 0, self.end);
+        let node = Node::<T>::new_sized(value, NodePtr::null(), self.end);
         // SAFETY: self.end is acquired from Node::<U>::new<T>()
         let mut end = unsafe { Node::<T>::from(self.end) };
         end.next = node;
@@ -359,7 +390,7 @@ pub mod list_deque {
 
     pub fn push_front_sized(&mut self, value: T) {
       if let Some(value) = self.try_push_first_sized(value) {
-        let node = Node::<T>::new_sized(value, self.begin, 0);
+        let node = Node::<T>::new_sized(value, self.begin, NodePtr::null());
         // SAFETY: self.begin is acquired from Node::<U>::new<T>()
         let mut begin = unsafe { Node::<T>::from(self.begin) };
         begin.prev = node;
@@ -379,7 +410,7 @@ pub mod list_deque {
 
       // SAFETY: self.end is acquired from Node::<U>::new<T>()
       let mut end = unsafe { Node::<T>::from(self.end) };
-      end.next = 0;
+      end.next = NodePtr::null();
       Some(value)
     }
 
@@ -395,18 +426,18 @@ pub mod list_deque {
 
       // SAFETY: self.begin is acquired from Node::<U>::new<T>()
       let mut begin = unsafe { Node::<T>::from(self.begin) };
-      begin.prev = 0;
+      begin.prev = NodePtr::null();
       Some(value)
     }
 
     fn try_push_first_sized(&mut self, value: T) -> Option<T> {
       self.length += 1;
       if self.length != 1 {
-        debug_assert!(self.begin != 0 && self.end != 0);
+        debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
         return Some(value);
       }
-      debug_assert!(self.begin == 0 && self.end == 0);
-      let node = Node::<T>::new_sized(value, 0, 0);
+      debug_assert!(self.begin.is_null() && self.end.is_null());
+      let node = Node::<T>::new_sized(value, NodePtr::null(), NodePtr::null());
       self.begin = node;
       self.end = node;
       return None;
@@ -414,12 +445,12 @@ pub mod list_deque {
 
     fn try_pop_last(&mut self) -> Option<Option<T>> {
       self.length = self.length.checked_sub(1)?;
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       if self.length == 0 {
         // SAFETY: self.begin is acquired from Node::<U>::new<T>()
         let begin = ManuallyDrop::into_inner(unsafe { Node::<T>::from(self.begin) });
-        self.begin = 0;
-        self.end = 0;
+        self.begin = NodePtr::null();
+        self.end = NodePtr::null();
         return Some(Some(begin.value));
       }
       Some(None)
@@ -429,13 +460,13 @@ pub mod list_deque {
   impl<U: ?Sized> Drop for ListDeque<U> {
     fn drop(&mut self) {
       while self.drop_front().is_some() {}
-      debug_assert!(self.begin == 0 && self.end == 0 && self.length == 0);
+      debug_assert!(self.begin.is_null() && self.end.is_null() && self.length == 0);
     }
   }
 
   pub struct Iter<'a, U: 'a + ?Sized> {
-    begin: u128,
-    end: u128,
+    begin: NodePtr,
+    end: NodePtr,
     remaining: usize,
     _phantom: PhantomData<&'a ListDeque<U>>,
   }
@@ -445,7 +476,7 @@ pub mod list_deque {
 
     fn next(&mut self) -> Option<Self::Item> {
       self.remaining = self.remaining.checked_sub(1)?;
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.begin is acquired from Node::<U>::new<T>()
       let begin = unsafe { Node::<U>::ref_from(self.begin) };
       let value = &begin.value;
@@ -460,7 +491,7 @@ pub mod list_deque {
   impl<'a, U: 'a + ?Sized> DoubleEndedIterator for Iter<'a, U> {
     fn next_back(&mut self) -> Option<Self::Item> {
       self.remaining = self.remaining.checked_sub(1)?;
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.end is acquired from Node::<U>::new<T>()
       let end = unsafe { Node::<U>::ref_from(self.end) };
       let value = &end.value;
@@ -481,8 +512,8 @@ pub mod list_deque {
   }
 
   pub struct IterMut<'a, U: 'a + ?Sized> {
-    begin: u128,
-    end: u128,
+    begin: NodePtr,
+    end: NodePtr,
     remaining: usize,
     _phantom: PhantomData<&'a mut ListDeque<U>>,
   }
@@ -492,7 +523,7 @@ pub mod list_deque {
 
     fn next(&mut self) -> Option<Self::Item> {
       self.remaining = self.remaining.checked_sub(1)?;
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.begin is acquired from Node::<U>::new<T>()
       let begin = unsafe { Node::<U>::mut_from(self.begin) };
       let value = &mut begin.value;
@@ -508,7 +539,7 @@ pub mod list_deque {
   impl<'a, U: 'a + ?Sized> DoubleEndedIterator for IterMut<'a, U> {
     fn next_back(&mut self) -> Option<Self::Item> {
       self.remaining = self.remaining.checked_sub(1)?;
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.end is acquired from Node::<U>::new<T>()
       let end = unsafe { Node::<U>::mut_from(self.end) };
       let value = &mut end.value;
@@ -518,8 +549,8 @@ pub mod list_deque {
   }
 
   pub struct IntoIter<T> {
-    begin: u128,
-    end: u128,
+    begin: NodePtr,
+    end: NodePtr,
     remaining: usize,
     _phantom: PhantomData<T>,
   }
@@ -529,7 +560,7 @@ pub mod list_deque {
 
     fn next(&mut self) -> Option<Self::Item> {
       self.remaining = self.remaining.checked_sub(1)?;
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.begin is acquired from Node::<U>::new<T>()
       let begin = ManuallyDrop::into_inner(unsafe { Node::<T>::from(self.begin) });
       let value = begin.value;
@@ -545,7 +576,7 @@ pub mod list_deque {
   impl<T> DoubleEndedIterator for IntoIter<T> {
     fn next_back(&mut self) -> Option<Self::Item> {
       self.remaining = self.remaining.checked_sub(1)?;
-      debug_assert!(self.begin != 0 && self.end != 0);
+      debug_assert!(self.begin.is_not_null() && self.end.is_not_null());
       // SAFETY: self.end is acquired from Node::<U>::new<T>()
       let end = ManuallyDrop::into_inner(unsafe { Node::<T>::from(self.end) });
       let value = end.value;
@@ -563,8 +594,8 @@ pub mod list_deque {
       let begin = self.begin;
       let end = self.end;
       let remaining = self.length;
-      self.begin = 0;
-      self.end = 0;
+      self.begin = NodePtr::null();
+      self.end = NodePtr::null();
       self.length = 0;
       Self::IntoIter {
         begin,
