@@ -62,6 +62,7 @@ pub mod list_deque {
   }
 
   use std::{
+    cell::UnsafeCell,
     fmt::Debug,
     marker::{PhantomData, Unsize},
     mem::ManuallyDrop,
@@ -164,7 +165,8 @@ pub mod list_deque {
       }
     }
   }
-
+  /// # Examples
+  /// ## Creation of ListDeque of trait objects and downcasting example
   /// ```
   /// use dllist::*;
   /// trait AnyWrite: std::io::Write {
@@ -194,6 +196,7 @@ pub mod list_deque {
   /// assert_eq!(vector[0], 0);
   /// assert_eq!(vector[1], 1);
   /// ```
+  /// ## Macro for constructing ListDeque and Debug format for ListDeque
   /// ```
   /// use dllist::*;
   /// let mut list = deque_sized![1,2,3];
@@ -201,6 +204,7 @@ pub mod list_deque {
   /// *item = 4;
   /// assert_eq!(format!("{:?}", list), "[ 1, 2, 4, ]");
   /// ```
+  /// ## Failes to compile: Consistency with borrowing rules (example 1)
   /// ```compile_fail
   /// use dllist::*;
   /// let mut list = deque_sized![1,2,3];
@@ -210,6 +214,7 @@ pub mod list_deque {
   ///   println!("{}", item);
   /// }
   /// ```
+  /// ## Failes to compile: Consistency with borrowing rules (example 2)
   /// ```compile_fail
   /// use dllist::*;
   /// let mut list = deque_sized![1,2,3];
@@ -217,11 +222,24 @@ pub mod list_deque {
   /// println!("{:?}", list);
   /// *item = 4;
   /// ```
+  /// ## Failes to compile: ListDeque is not Sync
+  /// ```compile_fail
+  /// use dllist::*;
+  /// fn requires_sync<T: Sync>(_: T) {}
+  /// requires_sync(ListDeque::<i32>::new());
+  /// ```
+  /// ## However is Send (when U is Send of course)
+  /// ```
+  /// use dllist::*;
+  /// fn requires_send<T: Send>(_: T) {}
+  /// requires_send(ListDeque::<i32>::new());
+  /// ```
   pub struct ListDeque<U: ?Sized> {
     begin: NodePtr,
     end: NodePtr,
     length: usize,
-    _phantom: PhantomData<U>,
+    // UnsafeCell is needed to unimplement Sync trait
+    _phantom: PhantomData<UnsafeCell<U>>,
   }
 
   impl<U: ?Sized> ListDeque<U> {
@@ -456,6 +474,9 @@ pub mod list_deque {
       Some(None)
     }
   }
+
+  // SAFETY: ListDeque only have pointers to it's own data
+  unsafe impl<U: ?Sized + Send> Send for ListDeque<U> {}
 
   impl<U: ?Sized> Drop for ListDeque<U> {
     fn drop(&mut self) {
