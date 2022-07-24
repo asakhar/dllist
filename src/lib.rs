@@ -1,33 +1,31 @@
 #![feature(unsize)]
 
-#[macro_use]
-pub mod list_deque {
-  #[macro_export]
-  macro_rules! deque_sized {
-      ($($x:expr),*) => {
-          {
-              let mut new_list = ListDeque::new();
-              for item in [$($x),*] {
-                  new_list.push_back_sized(item);
-              }
-              new_list
-          }
-      };
-      ($elem:expr; $n:expr) => {
-          {
-              let mut new_list = deque_sized![];
-              let size: usize = $n;
-              let elem = $elem;
-              for _ in 0..size {
-                  new_list.push_back_sized(elem);
-              }
-              new_list
-          }
-      };
-  }
+#[macro_export]
+macro_rules! deque_sized {
+  ($($x:expr),*) => {
+    {
+      let mut new_list = dllist::ListDeque::new();
+      for item in [$($x),*] {
+        new_list.push_back_sized(item);
+      }
+      new_list
+    }
+  };
+  ($elem:expr; $n:expr) => {
+    {
+      let mut new_list = deque_sized![];
+      let size: usize = $n;
+      let elem = $elem;
+      for _ in 0..size {
+        new_list.push_back_sized(elem);
+      }
+      new_list
+    }
+  };
+}
 
-  #[macro_export]
-  macro_rules! deque_insertion_helper {
+#[macro_export]
+macro_rules! deque_insertion_helper {
     ($deq:ident, $x:expr) => {
       $deq.push_back($x);
     };
@@ -39,28 +37,29 @@ pub mod list_deque {
     }
   }
 
-  #[macro_export]
-  macro_rules! deque {
-      ($($x:expr),*) => {
-          {
-              let mut new_list = ListDeque::new();
-              deque_insertion_helper!(new_list, $($x),*);
-              new_list
-          }
-      };
-      ($elem:expr; $n:expr) => {
-          {
-              let mut new_list = deque![];
-              let size: usize = $n;
-              let elem = $elem;
-              for _ in 0..size {
-                  new_list.push_back(elem);
-              }
-              new_list
-          }
+#[macro_export]
+macro_rules! deque {
+  ($($x:expr),*) => {
+    {
+      let mut new_list = dllist::ListDeque::new();
+      deque_insertion_helper!(new_list, $($x),*);
+      new_list
+    }
+  };
+  ($elem:expr; $n:expr) => {
+    {
+      let mut new_list = deque![];
+      let size: usize = $n;
+      let elem = $elem;
+      for _ in 0..size {
+        new_list.push_back(elem);
       }
+      new_list
+    }
   }
+}
 
+pub mod list_deque {
   use std::{
     cell::UnsafeCell,
     fmt::Debug,
@@ -629,7 +628,7 @@ pub mod list_deque {
 
   impl<T: Iterator> From<T> for ListDeque<T::Item> {
     fn from(it: T) -> Self {
-      let mut list = deque_sized![];
+      let mut list = ListDeque::new();
       for item in it {
         list.push_back_sized(item);
       }
@@ -672,9 +671,65 @@ mod tests {
     io::{Read, Seek, SeekFrom, Write},
   };
 
+  macro_rules! deque_sized {
+  ($($x:expr),*) => {
+    {
+      let mut new_list = crate::ListDeque::new();
+      for item in [$($x),*] {
+        new_list.push_back_sized(item);
+      }
+      new_list
+    }
+  };
+  ($elem:expr; $n:expr) => {
+    {
+      let mut new_list = deque_sized![];
+      let size: usize = $n;
+      let elem = $elem;
+      for _ in 0..size {
+        new_list.push_back_sized(elem);
+      }
+      new_list
+    }
+  };
+}
+
+  macro_rules! deque_insertion_helper {
+    ($deq:ident, $x:expr) => {
+      $deq.push_back($x);
+    };
+    ($deq:ident, $x:expr, $($y:expr),*) => {
+      {
+        $deq.push_back($x);
+        deque_insertion_helper!($deq, $($y),*);
+      }
+    }
+  }
+
+  macro_rules! deque {
+  ($($x:expr),*) => {
+    {
+      let mut new_list = crate::ListDeque::new();
+      deque_insertion_helper!(new_list, $($x),*);
+      new_list
+    }
+  };
+  ($elem:expr; $n:expr) => {
+    {
+      let mut new_list = deque![];
+      let size: usize = $n;
+      let elem = $elem;
+      for _ in 0..size {
+        new_list.push_back(elem);
+      }
+      new_list
+    }
+  }
+}
+
   use rand::distributions::Uniform;
 
-  use crate::{deque_sized, list_deque::ListDeque};
+  use crate::list_deque::ListDeque;
 
   trait AnyWrite: Write {
     fn as_any(&self) -> &dyn Any;

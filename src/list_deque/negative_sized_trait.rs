@@ -7,7 +7,7 @@ where
   T::Item: Unsize<U>,
 {
   fn from(it: T) -> Self {
-    let mut list = deque_sized![];
+    let mut list = crate::ListDeque::new();
     for item in it {
       list.push_back_sized(item);
     }
