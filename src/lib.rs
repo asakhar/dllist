@@ -188,7 +188,7 @@ pub mod list_deque {
   /// let buf2 = std::fs::File::create("/dev/null").unwrap();
   /// let mut list: ListDeque<dyn AnyWrite> = deque![buf1, buf2];
   ///
-  /// let vector: &Vec<u8> = list.peek_front()
+  /// let vector: &Vec<u8> = list.front()
   ///                            .unwrap()
   ///                            .as_any()
   ///                            .downcast_ref()
@@ -200,7 +200,7 @@ pub mod list_deque {
   /// ```
   /// use dllist::*;
   /// let mut list = deque_sized![1,2,3];
-  /// let item = list.peek_back_mut().unwrap();
+  /// let item = list.back_mut().unwrap();
   /// *item = 4;
   /// assert_eq!(format!("{:?}", list), "[ 1, 2, 4, ]");
   /// ```
@@ -290,7 +290,7 @@ pub mod list_deque {
       self.length
     }
 
-    pub fn peek_back<'a>(&'a self) -> Option<&'a U> {
+    pub fn back<'a>(&'a self) -> Option<&'a U> {
       if self.length == 0 {
         return None;
       }
@@ -300,7 +300,7 @@ pub mod list_deque {
       Some(&end.value)
     }
 
-    pub fn peek_back_mut<'a>(&'a mut self) -> Option<&'a mut U> {
+    pub fn back_mut<'a>(&'a mut self) -> Option<&'a mut U> {
       if self.length == 0 {
         return None;
       }
@@ -310,7 +310,7 @@ pub mod list_deque {
       Some(&mut end.value)
     }
 
-    pub fn peek_front<'a>(&'a self) -> Option<&'a U> {
+    pub fn front<'a>(&'a self) -> Option<&'a U> {
       if self.length == 0 {
         return None;
       }
@@ -320,7 +320,7 @@ pub mod list_deque {
       Some(&begin.value)
     }
 
-    pub fn peek_front_mut<'a>(&'a mut self) -> Option<&'a mut U> {
+    pub fn front_mut<'a>(&'a mut self) -> Option<&'a mut U> {
       if self.length == 0 {
         return None;
       }
@@ -668,8 +668,11 @@ pub use list_deque::ListDeque;
 mod tests {
   use std::{
     any::Any,
+    collections::VecDeque,
     io::{Read, Seek, SeekFrom, Write},
   };
+
+  use rand::distributions::Uniform;
 
   use crate::{deque_sized, list_deque::ListDeque};
 
@@ -707,9 +710,9 @@ mod tests {
       .unwrap();
     let mut list: ListDeque<dyn AnyWrite> = deque![buf1, buf2];
     assert_eq!(list.size(), 2);
-    list.peek_back_mut().unwrap().write_all(b"b").unwrap();
+    list.back_mut().unwrap().write_all(b"b").unwrap();
     assert_eq!(list.size(), 2);
-    list.peek_front_mut().unwrap().write_all(b"a").unwrap();
+    list.front_mut().unwrap().write_all(b"a").unwrap();
     assert_eq!(list.size(), 2);
 
     for (item, c) in list.iter_mut().zip(b"ab") {
@@ -747,9 +750,9 @@ mod tests {
     assert_eq!(list.size(), 1);
     list.push_back(buf2);
     assert_eq!(list.size(), 2);
-    list.peek_back_mut().unwrap().write_all(b"b").unwrap();
+    list.back_mut().unwrap().write_all(b"b").unwrap();
     assert_eq!(list.size(), 2);
-    list.peek_front_mut().unwrap().write_all(b"a").unwrap();
+    list.front_mut().unwrap().write_all(b"a").unwrap();
     assert_eq!(list.size(), 2);
 
     for (item, c) in list.iter().zip(b"ab") {
@@ -844,5 +847,40 @@ mod tests {
       j += 1;
     }
     assert_eq!(j, 30);
+  }
+
+  #[test]
+  fn fuzz() {
+    let mut deque = ListDeque::new();
+    let mut refer = VecDeque::new();
+    use rand::prelude::*;
+    let actions = rand::thread_rng().sample_iter(Uniform::new(0, 6));
+    for i in actions.take(1000000) {
+      match i {
+        0 => {
+          let val = rand::thread_rng().next_u64();
+          deque.push_front_sized(val);
+          refer.push_front(val);
+        }
+        1 => {
+          let val = rand::thread_rng().next_u64();
+          deque.push_back_sized(val);
+          refer.push_back(val);
+        }
+        2 => {
+          assert_eq!(deque.front().cloned(), refer.front().cloned());
+        }
+        3 => {
+          assert_eq!(deque.back().cloned(), refer.back().cloned());
+        }
+        4 => {
+          assert_eq!(deque.pop_front(), refer.pop_front());
+        }
+        5 => {
+          assert_eq!(deque.pop_back(), refer.pop_back());
+        }
+        _ => unreachable!(),
+      }
+    }
   }
 }
