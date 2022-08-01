@@ -4,7 +4,7 @@
 macro_rules! deque_sized {
   ($($x:expr),*) => {
     {
-      let mut new_list = dllist::ListDeque::new();
+      let mut new_list = $crate::ListDeque::new();
       for item in [$($x),*] {
         new_list.push_back_sized(item);
       }
@@ -41,7 +41,7 @@ macro_rules! deque_insertion_helper {
 macro_rules! deque {
   ($($x:expr),*) => {
     {
-      let mut new_list = dllist::ListDeque::new();
+      let mut new_list = $crate::ListDeque::new();
       deque_insertion_helper!(new_list, $($x),*);
       new_list
     }
