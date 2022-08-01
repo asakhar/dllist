@@ -1,4 +1,4 @@
-use std::{
+use core::{
   cell::UnsafeCell,
   fmt::Debug,
   marker::{PhantomData, Unsize},
@@ -7,7 +7,7 @@ use std::{
 use self::implementation::{Node, NodePtr};
 
 mod implementation {
-  use std::marker::Unsize;
+  use core::marker::Unsize;
 
   #[derive(Clone, Copy, PartialEq, Eq)]
   pub struct NodePtr(u128);
@@ -55,7 +55,7 @@ mod implementation {
     pub unsafe fn from(ptr: NodePtr) -> Box<Node<U>> {
       // SAFETY: *mut Node<U> is either thin or wide ptr (64 or 128 bits respectivly).
       // So *mut Node<U> is always thinner or same as u128
-      let node_ptr: *mut Node<U> = std::mem::transmute_copy(&ptr);
+      let node_ptr: *mut Node<U> = core::mem::transmute_copy(&ptr);
       Box::from_raw(node_ptr)
     }
 
@@ -63,14 +63,14 @@ mod implementation {
     /// - ptr must be aquired from Node::< U>::new<_>
     /// - ptr should point to memory that has not been currently dereferenced with other assosiated functions on Node (no exclusive or shared refs)
     pub unsafe fn mut_from<'a>(ptr: NodePtr) -> &'a mut Node<U> {
-      std::mem::transmute_copy(&ptr)
+      core::mem::transmute_copy(&ptr)
     }
 
     /// ## Safety requirements:
     /// - ptr must be aquired from Node::< U>::new<_>
     /// - ptr should point to memory that has not been currently dereferenced with ownership taking or exclusive borrowing assosiated functions on Node
     pub unsafe fn ref_from<'a>(ptr: NodePtr) -> &'a Node<U> {
-      std::mem::transmute_copy(&ptr)
+      core::mem::transmute_copy(&ptr)
     }
 
     pub fn new<T>(value: T, next: NodePtr, prev: NodePtr) -> NodePtr
@@ -81,21 +81,21 @@ mod implementation {
       let node_box = Box::new(node);
       let trait_box: Box<Node<U>> = node_box;
       let trait_ptr = Box::into_raw(trait_box);
-      let size = std::mem::size_of_val(&trait_ptr);
+      let size = core::mem::size_of_val(&trait_ptr);
       match size {
         4 => {
           // SAFETY: *mut Node<U> is thin ptr so in 32bit system it would fit in u32
-          let tmp: u32 = unsafe { std::mem::transmute_copy(&trait_ptr) };
+          let tmp: u32 = unsafe { core::mem::transmute_copy(&trait_ptr) };
           tmp.into()
         }
         8 => {
           // SAFETY: *mut Node<U> is thin ptr so it would fit in u64
-          let tmp: u64 = unsafe { std::mem::transmute_copy(&trait_ptr) };
+          let tmp: u64 = unsafe { core::mem::transmute_copy(&trait_ptr) };
           tmp.into()
         }
         // SAFETY: *mut Node<U> is wide ptr so it would fit in u128
         // in both cases ptr is always a valid uint
-        16 => unsafe { std::mem::transmute_copy(&trait_ptr) },
+        16 => unsafe { core::mem::transmute_copy(&trait_ptr) },
         _ => unreachable!(),
       }
     }
@@ -105,16 +105,16 @@ mod implementation {
       let node = Node::<T> { next, prev, value };
       let node_box = Box::new(node);
       let node_ptr = Box::into_raw(node_box);
-      let size = std::mem::size_of_val(&node_ptr);
+      let size = core::mem::size_of_val(&node_ptr);
       match size {
         4 => {
           // SAFETY: *mut Node<T> is thin ptr so in 32bit system it would fit in u32
-          let tmp: u32 = unsafe { std::mem::transmute_copy(&node_ptr) };
+          let tmp: u32 = unsafe { core::mem::transmute_copy(&node_ptr) };
           tmp.into()
         }
         8 => {
           // SAFETY: *mut Node<T> is thin ptr so it would fit in u64
-          let tmp: u64 = unsafe { std::mem::transmute_copy(&node_ptr) };
+          let tmp: u64 = unsafe { core::mem::transmute_copy(&node_ptr) };
           tmp.into()
         }
         _ => unreachable!(),
